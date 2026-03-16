@@ -10,11 +10,13 @@ import MapHUD from '../components/MapHUD';
 
 export default function DriverTrackingScreen() {
   const router = useRouter();
-  const { driverId, vehicleId } = useLocalSearchParams();
+  const { driverId, vehicleId, vehicleType } = useLocalSearchParams();
   const [isTracking, setIsTracking] = useState(true);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [speed, setSpeed] = useState(0);
-  const [idleTime, setIdleTime] = useState(0);
+  const [currentStatus, setCurrentStatus] = useState('Idle');
+  const [arrivalTime, setArrivalTime] = useState<number | null>(null);
+  const [delayAlertSent, setDelayAlertSent] = useState(false);
   const [delayModalVisible, setDelayModalVisible] = useState(false);
   const [delayTime, setDelayTime] = useState('');
   const [delayReason, setDelayReason] = useState('');
@@ -22,6 +24,7 @@ export default function DriverTrackingScreen() {
   // Fallback if not provided (for development/testing)
   const activeVehicleId = (vehicleId as string) || "TN 01 AF 1234";
   const activeDriverId = (driverId as string) || "Arun Kumar";
+  const activeVehicleType = (vehicleType as string) || "supplier";
 
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription | null = null;
@@ -36,7 +39,7 @@ export default function DriverTrackingScreen() {
       locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
+          timeInterval: 5000,
           distanceInterval: 1,
         },
         (loc) => {
@@ -48,36 +51,16 @@ export default function DriverTrackingScreen() {
             });
             setSpeed(currentSpeed);
 
-            // Update Firebase
+            // Update Firebase only with location and speed - status handled by buttons
             const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
-            const newStatus = currentSpeed > 0 ? 'moving' : 'idle';
             update(vehicleRef, {
-              driverId: activeDriverId,
+              driverName: activeDriverId,
+              vehicleType: activeVehicleType,
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
               speed: currentSpeed.toFixed(1),
-              status: currentSpeed > 0 ? 'Moving' : 'Idle',
               lastUpdated: new Date().toISOString()
             }).catch(err => console.error("Firebase update error:", err));
-
-            // Delay Detection Logic
-            if (currentSpeed === 0) {
-              setIdleTime((prev: number) => {
-                const newTime = prev + 3; // loc updates every 3s
-                if (newTime >= 600) { // 10 mins = 600 seconds
-                  // Create alert logic
-                  const alertsRef = ref(database, 'alerts');
-                  push(alertsRef, {
-                    vehicle: activeVehicleId,
-                    message: `Long idle time (10+ mins)`,
-                    time: new Date().toISOString()
-                  });
-                  return 0; // Reset counter after alert
-                }
-                return newTime;
-              });
-              setIdleTime(0);
-            }
           }
         }
       );
@@ -94,9 +77,41 @@ export default function DriverTrackingScreen() {
         speed: "0",
         lastUpdated: new Date().toISOString()
       }).catch(err => console.error(err));
+      setCurrentStatus('Idle');
     }
 
+    // Delay/Waiting Time interval check
+    const waitInterval = setInterval(() => {
+      setCurrentStatus(status => {
+        setArrivalTime(arrTime => {
+          setDelayAlertSent(alertSent => {
+            if (status === 'Arrived at Factory' && arrTime) {
+              const waitMs = new Date().getTime() - arrTime;
+              const waitMins = Math.floor(waitMs / 60000);
+              const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
+
+              update(vehicleRef, { waitingTime: waitMins }).catch(console.error);
+
+              if (waitMins >= 10 && !alertSent) {
+                const alertsRef = ref(database, 'alerts');
+                push(alertsRef, {
+                  vehicleID: activeVehicleId,
+                  message: `Truck ${activeVehicleId} waiting at gate for ${waitMins} minutes`,
+                  time: new Date().toISOString()
+                });
+                return true; // Mark alert as sent
+              }
+            }
+            return alertSent;
+          });
+          return arrTime;
+        });
+        return status;
+      });
+    }, 10000); // Check every 10 seconds
+
     return () => {
+      clearInterval(waitInterval);
       if (locationSubscription) {
         (locationSubscription as Location.LocationSubscription).remove();
       }
@@ -105,23 +120,49 @@ export default function DriverTrackingScreen() {
 
   // Task Reporting
   const logTaskEvent = (eventType: string) => {
-    // Also update vehicle status when logging events
+    const timestamp = new Date().toISOString();
     const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
-    update(vehicleRef, {
-      status: eventType,
-      lastUpdated: new Date().toISOString()
-    }).catch(err => console.error(err));
 
-    const eventsRef = ref(database, 'events');
-    const newEventRef = push(eventsRef);
-    set(newEventRef, {
-      type: eventType.toLowerCase(),
-      vehicle: activeVehicleId,
-      driver: activeDriverId,
-      timestamp: new Date().toISOString(),
-    })
-      .then(() => Alert.alert('Success', `Task "${eventType}" logged successfully.`))
-      .catch((err: Error) => console.error("Task log error:", err));
+    let updateData: any = {
+      status: eventType,
+      lastUpdated: timestamp
+    };
+
+    setCurrentStatus(eventType);
+
+    if (eventType === 'Arrived at Factory') {
+      const nowMs = new Date().getTime();
+      updateData.arrivalTime = timestamp;
+      updateData.waitingTime = 0;
+      setArrivalTime(nowMs);
+      setDelayAlertSent(false); // Reset delay alert
+
+      // Push arrival event
+      const eventsRef = ref(database, 'events');
+      push(eventsRef, {
+        type: 'arrival',
+        vehicleID: activeVehicleId,
+        driver: activeDriverId,
+        time: timestamp
+      });
+
+    } else if (eventType === 'Departed') {
+      updateData.departureTime = timestamp;
+      updateData.waitingTime = 0;
+      setArrivalTime(null); // Clear waiting time tracker
+
+      // Push departure event
+      const eventsRef = ref(database, 'events');
+      push(eventsRef, {
+        type: 'departure',
+        vehicleID: activeVehicleId,
+        time: timestamp
+      });
+    }
+
+    update(vehicleRef, updateData)
+      .then(() => Alert.alert('Status Updated', `Status changed to ${eventType}`))
+      .catch(err => console.error(err));
   };
 
   // Delay Reporting
@@ -135,11 +176,11 @@ export default function DriverTrackingScreen() {
     const newEventRef = push(eventsRef);
     set(newEventRef, {
       type: 'delay',
-      vehicle: activeVehicleId,
+      vehicleID: activeVehicleId,
       driver: activeDriverId,
       reason: delayReason,
       minutes: delayTime,
-      timestamp: new Date().toISOString()
+      time: new Date().toISOString()
     })
       .then(() => {
         Alert.alert('Success', 'Delay reported to Admin.');
@@ -154,8 +195,8 @@ export default function DriverTrackingScreen() {
     const alertsRef = ref(database, 'alerts');
     const newAlertRef = push(alertsRef);
     set(newAlertRef, {
-      vehicle: activeVehicleId,
-      message: `${activeVehicleId} route deviation detected`,
+      vehicleID: activeVehicleId,
+      message: `Vehicle ${activeVehicleId} route deviation detected`,
       time: new Date().toISOString()
     })
       .then(() => Alert.alert('Simulated', 'Route deviation alert generated.'))
@@ -189,23 +230,26 @@ export default function DriverTrackingScreen() {
       {/* Task Buttons Panel */}
       <View style={styles.taskPanel}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.taskScroll}>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('En Route')}>
+            <Text style={styles.taskButtonText}>En Route</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Arrived at Factory')}>
+            <Text style={styles.taskButtonText}>Arrived</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Loading')}>
+            <Text style={styles.taskButtonText}>Loading</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Unloading')}>
+            <Text style={styles.taskButtonText}>Unloading</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Departed')}>
             <Text style={styles.taskButtonText}>Departed</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('In Transit')}>
-            <Text style={styles.taskButtonText}>In Transit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Arrived')}>
-            <Text style={styles.taskButtonText}>Arrived</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#5cb85c' }]} onPress={() => logTaskEvent('Delivery Completed')}>
-            <Text style={styles.taskButtonText}>Completed</Text>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Idle')}>
+            <Text style={styles.taskButtonText}>Idle</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#d9534f' }]} onPress={() => setDelayModalVisible(true)}>
             <Text style={styles.taskButtonText}>Log Delay</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#fd8b00' }]} onPress={simulateRouteDeviation}>
-            <Text style={styles.taskButtonText}>SimDeviation</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>

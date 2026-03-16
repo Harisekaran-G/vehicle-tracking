@@ -6,26 +6,27 @@ import { useRouter } from 'expo-router';
 import Header from '../components/Header';
 
 interface VehicleData {
-  driverId: string;
-  fuelLevel: string;
-  lastUpdated: string;
+  driverName: string;
+  vehicleType: string;
   latitude: number;
   longitude: number;
   speed: string;
   status: string;
+  waitingTime?: number;
+  lastUpdated: string;
 }
 
 interface TaskLog {
-  vehicle: string;
-  driver: string;
+  vehicleID: string;
+  driver?: string;
   type: string;
-  timestamp: string;
+  time: string;
   reason?: string;
   minutes?: string;
 }
 
 interface AlertLog {
-  vehicle: string;
+  vehicleID: string;
   message: string;
   time: string;
 }
@@ -37,6 +38,9 @@ export default function AdminDashboardScreen() {
   const [alerts, setAlerts] = useState<AlertLog[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [insideCount, setInsideCount] = useState(0);
+  const [delayedCount, setDelayedCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
 
   useEffect(() => {
     const vehiclesRef = ref(database, 'vehicles');
@@ -49,7 +53,9 @@ export default function AdminDashboardScreen() {
         setVehicles(data);
         const vals = Object.values(data) as VehicleData[];
         setTotalCount(vals.length);
-        setActiveCount(vals.filter(v => v.status !== 'Idle' && v.status !== 'Stopped').length);
+        setActiveCount(vals.filter(v => v.status !== 'Idle').length);
+        setInsideCount(vals.filter(v => ['Arrived at Factory', 'Loading', 'Unloading'].includes(v.status)).length);
+        setDelayedCount(vals.filter(v => (v.waitingTime || 0) > 10).length);
       }
     });
 
@@ -57,7 +63,8 @@ export default function AdminDashboardScreen() {
       const data = snapshot.val();
       if (data) {
         const logsArray = Object.values(data) as TaskLog[];
-        logsArray.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        logsArray.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+        setCompletedCount(logsArray.filter(l => l.type === 'departure').length);
         setTaskLogs(logsArray.slice(0, 5));
       }
     });
@@ -84,19 +91,23 @@ export default function AdminDashboardScreen() {
       <Header title="Fleet Dashboard" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.grid}>
-          <View style={[styles.card, { width: '31%' }]}>
-            <Text style={styles.cardTitle}>Active Fleet</Text>
+          <View style={[styles.card, { width: '48%' }]}>
+            <Text style={styles.cardTitle}>Active Vehicles</Text>
             <Text style={styles.cardValue}>
-              {totalCount > 0 ? `${activeCount} / ${totalCount}` : '84 / 102'}
+              {totalCount > 0 ? `${activeCount} / ${totalCount}` : '0 / 0'}
             </Text>
           </View>
-          <View style={[styles.card, { width: '31%' }]}>
-            <Text style={styles.cardTitle}>Distance (km)</Text>
-            <Text style={styles.cardValue}>12,482</Text>
+          <View style={[styles.card, { width: '48%' }]}>
+            <Text style={styles.cardTitle}>Inside Factory</Text>
+            <Text style={styles.cardValue}>{insideCount}</Text>
           </View>
-          <View style={[styles.card, { width: '31%' }]}>
-            <Text style={styles.cardTitle}>Safety Score</Text>
-            <Text style={[styles.cardValue, { color: '#5cb85c' }]}>94.8</Text>
+          <View style={[styles.card, { width: '48%', borderLeftColor: '#d9534f' }]}>
+            <Text style={styles.cardTitle}>Delayed Vehicles</Text>
+            <Text style={[styles.cardValue, { color: '#d9534f' }]}>{delayedCount}</Text>
+          </View>
+          <View style={[styles.card, { width: '48%', borderLeftColor: '#5cb85c' }]}>
+            <Text style={styles.cardTitle}>Completed</Text>
+            <Text style={[styles.cardValue, { color: '#5cb85c' }]}>{completedCount}</Text>
           </View>
         </View>
 
@@ -120,12 +131,12 @@ export default function AdminDashboardScreen() {
                       {isDelay ? `🚨 DELAY: ${log.minutes}m` : log.type?.toUpperCase()}
                     </Text>
                     <Text style={styles.logDetail}>
-                      {log.vehicle} • {log.driver}
+                      {log.vehicleID} {log.driver ? `• ${log.driver}` : ''}
                       {log.reason ? `\nReason: ${log.reason}` : ''}
                     </Text>
                   </View>
                   <Text style={styles.logTime}>
-                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(log.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
               );
@@ -152,33 +163,36 @@ export default function AdminDashboardScreen() {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Fleet Status</Text>
 
+          <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10, marginBottom: 10 }}>
+            <Text style={{ flex: 2, fontWeight: 'bold', color: '#666' }}>Vehicle / Driver</Text>
+            <Text style={{ flex: 1.5, fontWeight: 'bold', color: '#666', textAlign: 'center' }}>Status</Text>
+            <Text style={{ flex: 1, fontWeight: 'bold', color: '#666', textAlign: 'right' }}>Wait</Text>
+          </View>
+
           {Object.entries(vehicles).length > 0 ? (
             Object.entries(vehicles).map(([id, v]) => {
               const vehicle = v as VehicleData;
+              let statusStyle = styles.statusIdle;
+              if (['En Route', 'Departed'].includes(vehicle.status)) statusStyle = styles.statusMoving;
+              else if (['Arrived at Factory'].includes(vehicle.status)) statusStyle = styles.statusStopped;
+
               return (
                 <View key={id} style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>{id}</Text>
-                  <Text style={vehicle.status === 'Moving' ? styles.statusMoving : (vehicle.status === 'Idle' ? styles.statusIdle : styles.statusStopped)}>
+                  <View style={{ flex: 2 }}>
+                    <Text style={styles.statusLabel}>{id}</Text>
+                    <Text style={styles.statusSubLabel}>{vehicle.driverName || 'Unknown'} • {vehicle.vehicleType || 'Unknown'}</Text>
+                  </View>
+                  <Text style={[statusStyle, { flex: 1.5, textAlign: 'center' }]}>
                     {vehicle.status}
+                  </Text>
+                  <Text style={{ flex: 1, textAlign: 'right', color: '#666', fontWeight: 'bold' }}>
+                    {vehicle.waitingTime ? `${vehicle.waitingTime}m` : '-'}
                   </Text>
                 </View>
               );
             })
           ) : (
-            <>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>TN 01 AF 1234 (Chennai-OMR)</Text>
-                <Text style={styles.statusMoving}>Moving</Text>
-              </View>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>TN 38 BE 5678 (Coimbatore)</Text>
-                <Text style={styles.statusStopped}>Stopped</Text>
-              </View>
-              <View style={[styles.statusRow, { borderBottomWidth: 0 }]}>
-                <Text style={styles.statusLabel}>TN 59 CJ 9012 (Madurai)</Text>
-                <Text style={styles.statusIdle}>Idle</Text>
-              </View>
-            </>
+            <Text style={styles.emptyText}>No vehicles active.</Text>
           )}
         </View>
       </ScrollView>
@@ -287,6 +301,12 @@ const styles = StyleSheet.create({
   statusLabel: {
     fontSize: 15,
     color: '#333',
+    fontWeight: 'bold',
+  },
+  statusSubLabel: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
   statusMoving: {
     fontSize: 14,

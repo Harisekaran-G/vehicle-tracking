@@ -7,6 +7,7 @@ export default function DriverLoginScreen() {
   const router = useRouter();
   const [driverId, setDriverId] = useState('');
   const [vehicleId, setVehicleId] = useState('');
+  const [vehicleType, setVehicleType] = useState('supplier');
   const [password, setPassword] = useState('');
 
   return (
@@ -41,11 +42,26 @@ export default function DriverLoginScreen() {
           secureTextEntry
         />
 
+        <Text style={styles.label}>Vehicle Type</Text>
+        <View style={styles.typeSelector}>
+          {['supplier', 'delivery', 'vendor'].map(type => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.typeButton, vehicleType === type && styles.typeButtonActive]}
+              onPress={() => setVehicleType(type)}
+            >
+              <Text style={[styles.typeButtonText, vehicleType === type && styles.typeButtonTextActive]}>
+                {type.toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <TouchableOpacity
           style={styles.loginButton}
           onPress={() => router.push({
             pathname: '/driver_tracking',
-            params: { driverId, vehicleId }
+            params: { driverId, vehicleId, vehicleType }
           })}
         >
           <Text style={styles.loginButtonText}>Login System</Text>
@@ -73,6 +89,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#041627',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  typeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#041627',
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  typeButtonActive: {
+    backgroundColor: '#041627',
+  },
+  typeButtonText: {
+    color: '#041627',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  typeButtonTextActive: {
+    color: '#fff',
   },
   loginButton: {
     backgroundColor: '#041627',

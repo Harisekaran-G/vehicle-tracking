@@ -6,7 +6,8 @@ import { ref, onValue } from 'firebase/database';
 import { database } from '../config/firebase';
 
 interface VehicleData {
-    driverId: string;
+    driverName: string;
+    vehicleType: string;
     latitude: number;
     longitude: number;
     speed: string;
@@ -31,9 +32,9 @@ export default function AdminLiveMapScreen() {
     }, []);
 
     const getMarkerColor = (status: string) => {
-        if (status === 'Moving') return '#5cb85c';
-        if (status === 'Idle') return '#fd8b00';
-        return '#d9534f'; // Stopped or other
+        if (['En Route', 'Departed'].includes(status)) return '#5cb85c';
+        if (['Arrived at Factory'].includes(status)) return '#d9534f';
+        return '#fd8b00'; // Idle, Loading, Unloading 
     };
 
     return (
@@ -67,7 +68,7 @@ export default function AdminLiveMapScreen() {
                         >
                             <Callout style={styles.callout}>
                                 <Text style={styles.calloutTitle}>{id}</Text>
-                                <Text style={styles.calloutText}>Driver: {vehicle.driverId}</Text>
+                                <Text style={styles.calloutText}>{vehicle.driverName || 'Unknown'} • {vehicle.vehicleType}</Text>
                                 <Text style={styles.calloutText}>Status: {vehicle.status}</Text>
                             </Callout>
                         </Marker>
@@ -82,11 +83,11 @@ export default function AdminLiveMapScreen() {
                 </View>
                 <View style={styles.legendItem}>
                     <View style={[styles.legendColor, { backgroundColor: '#fd8b00' }]} />
-                    <Text style={styles.legendText}>Idle</Text>
+                    <Text style={styles.legendText}>Idle / Loading</Text>
                 </View>
                 <View style={styles.legendItem}>
                     <View style={[styles.legendColor, { backgroundColor: '#d9534f' }]} />
-                    <Text style={styles.legendText}>Stopped</Text>
+                    <Text style={styles.legendText}>Waiting</Text>
                 </View>
             </View>
         </View>
