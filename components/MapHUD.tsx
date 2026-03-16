@@ -4,10 +4,9 @@ import { View, Text, StyleSheet } from 'react-native';
 interface MapHUDProps {
   speed: string;
   signal: string;
-  fuel: string;
 }
 
-export default function MapHUD({ speed, signal, fuel }: MapHUDProps) {
+export default function MapHUD({ speed, signal }: MapHUDProps) {
   return (
     <View style={styles.hudContainer}>
       <View style={styles.hudBox}>
@@ -15,15 +14,6 @@ export default function MapHUD({ speed, signal, fuel }: MapHUDProps) {
         <Text style={styles.hudValue}>{speed} km/h</Text>
       </View>
       <View style={styles.hudLine} />
-      <View style={styles.hudBox}>
-        <Text style={styles.hudLabel}>GPS</Text>
-        <Text style={[styles.hudValue, { color: '#5cb85c' }]}>{signal}</Text>
-      </View>
-      <View style={styles.hudLine} />
-      <View style={styles.hudBox}>
-        <Text style={styles.hudLabel}>Fuel</Text>
-        <Text style={styles.hudValue}>{fuel}</Text>
-      </View>
     </View>
   );
 }

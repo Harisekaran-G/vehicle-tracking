@@ -10,13 +10,13 @@ export default function DriverLoginScreen() {
   const [password, setPassword] = useState('');
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
       <Header title="Driver Portal" />
       <View style={styles.content}>
-        <TextInput 
+        <TextInput
           style={styles.input}
           placeholder="Driver Name"
           placeholderTextColor="#999"
@@ -24,7 +24,7 @@ export default function DriverLoginScreen() {
           onChangeText={setDriverId}
           autoCapitalize="words"
         />
-        <TextInput 
+        <TextInput
           style={styles.input}
           placeholder="Vehicle ID (e.g., TN 66 DL 3456)"
           placeholderTextColor="#999"
@@ -32,7 +32,7 @@ export default function DriverLoginScreen() {
           onChangeText={setVehicleId}
           autoCapitalize="characters"
         />
-        <TextInput 
+        <TextInput
           style={styles.input}
           placeholder="Password"
           placeholderTextColor="#999"
@@ -40,11 +40,11 @@ export default function DriverLoginScreen() {
           onChangeText={setPassword}
           secureTextEntry
         />
-        
-        <TouchableOpacity 
-          style={styles.loginButton} 
+
+        <TouchableOpacity
+          style={styles.loginButton}
           onPress={() => router.push({
-            pathname: '/driver-tracking',
+            pathname: '/driver_tracking',
             params: { driverId, vehicleId }
           })}
         >

@@ -14,6 +14,7 @@ export default function DriverTrackingScreen() {
   const [isTracking, setIsTracking] = useState(true);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [speed, setSpeed] = useState(0);
+  const [idleTime, setIdleTime] = useState(0);
   const [delayModalVisible, setDelayModalVisible] = useState(false);
   const [delayTime, setDelayTime] = useState('');
   const [delayReason, setDelayReason] = useState('');
@@ -49,15 +50,34 @@ export default function DriverTrackingScreen() {
 
             // Update Firebase
             const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
+            const newStatus = currentSpeed > 0 ? 'moving' : 'idle';
             update(vehicleRef, {
               driverId: activeDriverId,
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
               speed: currentSpeed.toFixed(1),
-              fuelLevel: '78%',
-              status: currentSpeed > 0 ? 'Moving' : 'Stopped',
+              status: currentSpeed > 0 ? 'Moving' : 'Idle',
               lastUpdated: new Date().toISOString()
             }).catch(err => console.error("Firebase update error:", err));
+
+            // Delay Detection Logic
+            if (currentSpeed === 0) {
+              setIdleTime((prev: number) => {
+                const newTime = prev + 3; // loc updates every 3s
+                if (newTime >= 600) { // 10 mins = 600 seconds
+                  // Create alert logic
+                  const alertsRef = ref(database, 'alerts');
+                  push(alertsRef, {
+                    vehicle: activeVehicleId,
+                    message: `Long idle time (10+ mins)`,
+                    time: new Date().toISOString()
+                  });
+                  return 0; // Reset counter after alert
+                }
+                return newTime;
+              });
+              setIdleTime(0);
+            }
           }
         }
       );
@@ -67,10 +87,10 @@ export default function DriverTrackingScreen() {
       startTracking();
     } else if (locationSubscription) {
       (locationSubscription as Location.LocationSubscription).remove();
-      // Mark as stopped in Firebase
+      // Mark as idle in Firebase
       const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
       update(vehicleRef, {
-        status: 'Stopped',
+        status: 'Idle',
         speed: "0",
         lastUpdated: new Date().toISOString()
       }).catch(err => console.error(err));
@@ -85,17 +105,23 @@ export default function DriverTrackingScreen() {
 
   // Task Reporting
   const logTaskEvent = (eventType: string) => {
-    const taskLogsRef = ref(database, 'task_logs');
-    const newLogRef = push(taskLogsRef);
-    set(newLogRef, {
-      vehicleId: activeVehicleId,
-      driverId: activeDriverId,
-      eventType: eventType,
+    // Also update vehicle status when logging events
+    const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
+    update(vehicleRef, {
+      status: eventType,
+      lastUpdated: new Date().toISOString()
+    }).catch(err => console.error(err));
+
+    const eventsRef = ref(database, 'events');
+    const newEventRef = push(eventsRef);
+    set(newEventRef, {
+      type: eventType.toLowerCase(),
+      vehicle: activeVehicleId,
+      driver: activeDriverId,
       timestamp: new Date().toISOString(),
-      location: location || { latitude: 11.6643, longitude: 78.1460 }
     })
-    .then(() => Alert.alert('Success', `Task "${eventType}" logged successfully.`))
-    .catch((err: Error) => console.error("Task log error:", err));
+      .then(() => Alert.alert('Success', `Task "${eventType}" logged successfully.`))
+      .catch((err: Error) => console.error("Task log error:", err));
   };
 
   // Delay Reporting
@@ -105,30 +131,35 @@ export default function DriverTrackingScreen() {
       return;
     }
 
-    const vehicleRef = ref(database, `vehicles/${activeVehicleId}`);
-    update(vehicleRef, {
-      delayMinutes: delayTime,
-      delayReason: delayReason,
-      lastDelayReported: new Date().toISOString()
-    });
-
-    const taskLogsRef = ref(database, 'task_logs');
-    const newLogRef = push(taskLogsRef);
-    set(newLogRef, {
-      vehicleId: activeVehicleId,
-      driverId: activeDriverId,
-      eventType: 'DELAY_REPORTED',
+    const eventsRef = ref(database, 'events');
+    const newEventRef = push(eventsRef);
+    set(newEventRef, {
+      type: 'delay',
+      vehicle: activeVehicleId,
+      driver: activeDriverId,
       reason: delayReason,
       minutes: delayTime,
       timestamp: new Date().toISOString()
     })
-    .then(() => {
-      Alert.alert('Success', 'Delay reported to Admin and Passengers.');
-      setDelayModalVisible(false);
-      setDelayTime('');
-      setDelayReason('');
+      .then(() => {
+        Alert.alert('Success', 'Delay reported to Admin.');
+        setDelayModalVisible(false);
+        setDelayTime('');
+        setDelayReason('');
+      })
+      .catch(err => console.error(err));
+  };
+
+  const simulateRouteDeviation = () => {
+    const alertsRef = ref(database, 'alerts');
+    const newAlertRef = push(alertsRef);
+    set(newAlertRef, {
+      vehicle: activeVehicleId,
+      message: `${activeVehicleId} route deviation detected`,
+      time: new Date().toISOString()
     })
-    .catch(err => console.error(err));
+      .then(() => Alert.alert('Simulated', 'Route deviation alert generated.'))
+      .catch(err => console.error(err));
   };
 
   return (
@@ -153,28 +184,28 @@ export default function DriverTrackingScreen() {
         />
       </MapView>
 
-      <MapHUD speed={speed.toFixed(0)} signal="Strong" fuel="78%" />
+      <MapHUD speed={speed.toFixed(0)} signal="Strong" />
 
       {/* Task Buttons Panel */}
       <View style={styles.taskPanel}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.taskScroll}>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Arrival')}>
-            <Text style={styles.taskButtonText}>Arrival</Text>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Departed')}>
+            <Text style={styles.taskButtonText}>Departed</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Departure')}>
-            <Text style={styles.taskButtonText}>Departure</Text>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('In Transit')}>
+            <Text style={styles.taskButtonText}>In Transit</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Pickup')}>
-            <Text style={styles.taskButtonText}>Pickup</Text>
+          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Arrived')}>
+            <Text style={styles.taskButtonText}>Arrived</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.taskButton} onPress={() => logTaskEvent('Delivery')}>
-            <Text style={styles.taskButtonText}>Delivery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#5cb85c' }]} onPress={() => logTaskEvent('Task Completed')}>
+          <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#5cb85c' }]} onPress={() => logTaskEvent('Delivery Completed')}>
             <Text style={styles.taskButtonText}>Completed</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#d9534f' }]} onPress={() => setDelayModalVisible(true)}>
-            <Text style={styles.taskButtonText}>Report Delay</Text>
+            <Text style={styles.taskButtonText}>Log Delay</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.taskButton, { backgroundColor: '#fd8b00' }]} onPress={simulateRouteDeviation}>
+            <Text style={styles.taskButtonText}>SimDeviation</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -204,14 +235,14 @@ export default function DriverTrackingScreen() {
               onChangeText={setDelayReason}
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: '#ccc' }]} 
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: '#ccc' }]}
                 onPress={() => setDelayModalVisible(false)}
               >
                 <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: '#d9534f' }]} 
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: '#d9534f' }]}
                 onPress={submitDelay}
               >
                 <Text style={styles.modalButtonText}>Report</Text>
@@ -223,18 +254,12 @@ export default function DriverTrackingScreen() {
 
       <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.pauseButton, !isTracking && styles.resumeButton]}
+          style={[styles.pauseButton, !isTracking && styles.resumeButton, { marginRight: 0 }]}
           onPress={() => setIsTracking(!isTracking)}
         >
           <Text style={styles.pauseButtonText}>
             {isTracking ? 'Pause Tracking' : 'Resume Tracking'}
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.settingsButton}
-          onPress={() => router.push('/driver-notifications')}
-        >
-          <Text style={styles.settingsButtonText}>Settings</Text>
         </TouchableOpacity>
       </View>
     </View>

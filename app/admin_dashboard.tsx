@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { ref, onValue } from 'firebase/database';
 import { database } from '../config/firebase';
+import { useRouter } from 'expo-router';
 import Header from '../components/Header';
 
 interface VehicleData {
@@ -15,31 +16,40 @@ interface VehicleData {
 }
 
 interface TaskLog {
-  vehicleId: string;
-  driverId: string;
-  eventType: string;
+  vehicle: string;
+  driver: string;
+  type: string;
   timestamp: string;
   reason?: string;
   minutes?: string;
 }
 
+interface AlertLog {
+  vehicle: string;
+  message: string;
+  time: string;
+}
+
 export default function AdminDashboardScreen() {
+  const router = useRouter();
   const [vehicles, setVehicles] = useState<Record<string, VehicleData>>({});
   const [taskLogs, setTaskLogs] = useState<TaskLog[]>([]);
+  const [alerts, setAlerts] = useState<AlertLog[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     const vehiclesRef = ref(database, 'vehicles');
-    const logsRef = ref(database, 'task_logs');
-    
+    const logsRef = ref(database, 'events');
+    const alertsRef = ref(database, 'alerts');
+
     const unsubscribeVehicles = onValue(vehiclesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setVehicles(data);
         const vals = Object.values(data) as VehicleData[];
         setTotalCount(vals.length);
-        setActiveCount(vals.filter(v => v.status === 'Moving').length);
+        setActiveCount(vals.filter(v => v.status !== 'Idle' && v.status !== 'Stopped').length);
       }
     });
 
@@ -47,15 +57,25 @@ export default function AdminDashboardScreen() {
       const data = snapshot.val();
       if (data) {
         const logsArray = Object.values(data) as TaskLog[];
-        // Sort by most recent
         logsArray.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        setTaskLogs(logsArray.slice(0, 10)); // Show last 10 tasks
+        setTaskLogs(logsArray.slice(0, 5));
+      }
+    });
+
+    const unsubscribeAlerts = onValue(alertsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const alertsArray = Object.values(data) as AlertLog[];
+        alertsArray.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+        // Show up to 5 alerts
+        setAlerts(alertsArray.slice(0, 5));
       }
     });
 
     return () => {
       unsubscribeVehicles();
       unsubscribeLogs();
+      unsubscribeAlerts();
     };
   }, []);
 
@@ -64,40 +84,43 @@ export default function AdminDashboardScreen() {
       <Header title="Fleet Dashboard" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.grid}>
-          <View style={styles.card}>
+          <View style={[styles.card, { width: '31%' }]}>
             <Text style={styles.cardTitle}>Active Fleet</Text>
             <Text style={styles.cardValue}>
               {totalCount > 0 ? `${activeCount} / ${totalCount}` : '84 / 102'}
             </Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, { width: '31%' }]}>
             <Text style={styles.cardTitle}>Distance (km)</Text>
             <Text style={styles.cardValue}>12,482</Text>
           </View>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Fuel (gal)</Text>
-            <Text style={styles.cardValue}>3.2k</Text>
-          </View>
-          <View style={styles.card}>
+          <View style={[styles.card, { width: '31%' }]}>
             <Text style={styles.cardTitle}>Safety Score</Text>
             <Text style={[styles.cardValue, { color: '#5cb85c' }]}>94.8</Text>
           </View>
         </View>
 
+        <TouchableOpacity
+          style={styles.liveMapBtn}
+          onPress={() => router.push('/admin_live_map')}
+        >
+          <Text style={styles.liveMapBtnText}>Open Live Map</Text>
+        </TouchableOpacity>
+
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Task & Delay Monitoring</Text>
           {taskLogs.length > 0 ? (
             taskLogs.map((log, index) => {
-              const isDelay = log.eventType === 'DELAY_REPORTED';
+              const isDelay = log.type === 'delay';
               return (
                 <View key={index} style={[styles.logItem, isDelay && styles.delayLogBg]}>
-                  <View style={[styles.statusDot, { backgroundColor: isDelay ? '#d9534f' : log.eventType === 'Task Completed' ? '#5cb85c' : '#fd8b00' }]} />
+                  <View style={[styles.statusDot, { backgroundColor: isDelay ? '#d9534f' : log.type === 'delivery completed' ? '#5cb85c' : '#fd8b00' }]} />
                   <View style={styles.logTextContainer}>
                     <Text style={[styles.logEvent, isDelay && { color: '#d9534f' }]}>
-                      {isDelay ? `🚨 DELAY: ${log.minutes}m` : log.eventType}
+                      {isDelay ? `🚨 DELAY: ${log.minutes}m` : log.type?.toUpperCase()}
                     </Text>
                     <Text style={styles.logDetail}>
-                      {log.vehicleId} • {log.driverId}
+                      {log.vehicle} • {log.driver}
                       {log.reason ? `\nReason: ${log.reason}` : ''}
                     </Text>
                   </View>
@@ -114,28 +137,33 @@ export default function AdminDashboardScreen() {
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Live Alerts Panel</Text>
-          <View style={styles.alertItem}>
-            <View style={styles.alertDot} />
-            <Text style={styles.alertText}>Vehicle TN 38 BE 5678 stopped unexpectedly.</Text>
-          </View>
-          <View style={[styles.alertItem, { borderBottomWidth: 0 }]}>
-            <View style={[styles.alertDot, { backgroundColor: '#fd8b00' }]} />
-            <Text style={styles.alertText}>Vehicle TN 01 AF 1234 route deviation.</Text>
-          </View>
+          {alerts.length > 0 ? (
+            alerts.map((alert, index) => (
+              <View key={index} style={[styles.alertItem, index === alerts.length - 1 && { borderBottomWidth: 0 }]}>
+                <View style={[styles.alertDot, { backgroundColor: alert.message.toLowerCase().includes('long idle') ? '#fd8b00' : '#d9534f' }]} />
+                <Text style={styles.alertText}>{alert.message}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyText}>No active alerts.</Text>
+          )}
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Fleet Status</Text>
-          
+
           {Object.entries(vehicles).length > 0 ? (
-            Object.entries(vehicles).map(([id, vehicle]) => (
-              <View key={id} style={styles.statusRow}>
-                <Text style={styles.statusLabel}>{id}</Text>
-                <Text style={vehicle.status === 'Moving' ? styles.statusMoving : styles.statusStopped}>
-                  {vehicle.status}
-                </Text>
-              </View>
-            ))
+            Object.entries(vehicles).map(([id, v]) => {
+              const vehicle = v as VehicleData;
+              return (
+                <View key={id} style={styles.statusRow}>
+                  <Text style={styles.statusLabel}>{id}</Text>
+                  <Text style={vehicle.status === 'Moving' ? styles.statusMoving : (vehicle.status === 'Idle' ? styles.statusIdle : styles.statusStopped)}>
+                    {vehicle.status}
+                  </Text>
+                </View>
+              );
+            })
           ) : (
             <>
               <View style={styles.statusRow}>
@@ -148,7 +176,7 @@ export default function AdminDashboardScreen() {
               </View>
               <View style={[styles.statusRow, { borderBottomWidth: 0 }]}>
                 <Text style={styles.statusLabel}>TN 59 CJ 9012 (Madurai)</Text>
-                <Text style={styles.statusMoving}>Moving</Text>
+                <Text style={styles.statusIdle}>Idle</Text>
               </View>
             </>
           )}
@@ -196,6 +224,23 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#041627',
+  },
+  liveMapBtn: {
+    backgroundColor: '#041627',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  liveMapBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   panel: {
     backgroundColor: '#fff',
@@ -252,6 +297,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#d9534f',
+  },
+  statusIdle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fd8b00',
   },
   logItem: {
     flexDirection: 'row',
