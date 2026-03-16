@@ -12,7 +12,7 @@ export default function MapHUD({ speed, signal, fuel }: MapHUDProps) {
     <View style={styles.hudContainer}>
       <View style={styles.hudBox}>
         <Text style={styles.hudLabel}>Speed</Text>
-        <Text style={styles.hudValue}>{speed} mph</Text>
+        <Text style={styles.hudValue}>{speed} km/h</Text>
       </View>
       <View style={styles.hudLine} />
       <View style={styles.hudBox}>

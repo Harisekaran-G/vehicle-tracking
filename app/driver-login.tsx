@@ -6,6 +6,7 @@ import Header from '../components/Header';
 export default function DriverLoginScreen() {
   const router = useRouter();
   const [driverId, setDriverId] = useState('');
+  const [vehicleId, setVehicleId] = useState('');
   const [password, setPassword] = useState('');
 
   return (
@@ -17,11 +18,19 @@ export default function DriverLoginScreen() {
       <View style={styles.content}>
         <TextInput 
           style={styles.input}
-          placeholder="Driver ID"
+          placeholder="Driver Name"
           placeholderTextColor="#999"
           value={driverId}
           onChangeText={setDriverId}
-          autoCapitalize="none"
+          autoCapitalize="words"
+        />
+        <TextInput 
+          style={styles.input}
+          placeholder="Vehicle ID (e.g., TN 66 DL 3456)"
+          placeholderTextColor="#999"
+          value={vehicleId}
+          onChangeText={setVehicleId}
+          autoCapitalize="characters"
         />
         <TextInput 
           style={styles.input}
@@ -32,7 +41,13 @@ export default function DriverLoginScreen() {
           secureTextEntry
         />
         
-        <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/driver-tracking')}>
+        <TouchableOpacity 
+          style={styles.loginButton} 
+          onPress={() => router.push({
+            pathname: '/driver-tracking',
+            params: { driverId, vehicleId }
+          })}
+        >
           <Text style={styles.loginButtonText}>Login System</Text>
         </TouchableOpacity>
       </View>

@@ -1,23 +1,71 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, Alert } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as Location from 'expo-location';
 import { ref, onValue } from 'firebase/database';
 import { database } from '../config/firebase';
 import Header from '../components/Header';
 
 export default function PassengerLiveMapScreen() {
   const router = useRouter();
-  const [vehicleLocation, setVehicleLocation] = useState({ latitude: 37.78825, longitude: -122.4324 });
-  const vehicleId = "AF-402";
+  const { vehicleId, route } = useLocalSearchParams();
+  const [vehicleLocation, setVehicleLocation] = useState({ latitude: 11.6643, longitude: 78.1460 });
+  const [myLocation, setMyLocation] = useState<{latitude: number; longitude: number} | null>(null);
 
   useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+    let isMounted = true;
+
+    const setupLocationTracking = async () => {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Allow location access to see your position on the map.');
+          return;
+        }
+
+        // Get initial location immediately
+        let initialLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        if (isMounted) {
+          setMyLocation({
+            latitude: initialLocation.coords.latitude,
+            longitude: initialLocation.coords.longitude
+          });
+        }
+
+        // Then start watching for updates
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 1,
+          },
+          (loc) => {
+            if (isMounted) {
+              setMyLocation({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude
+              });
+            }
+          }
+        );
+      } catch (error) {
+        console.error("Error getting location: ", error);
+      }
+    };
+
+    setupLocationTracking();
+
     const vehicleRef = ref(database, `vehicles/${vehicleId}`);
     
     // Subscribe to real-time driver coordinates
     const unsubscribe = onValue(vehicleRef, (snapshot) => {
       const data = snapshot.val();
-      if (data && data.latitude && data.longitude) {
+      if (data && data.latitude && data.longitude && isMounted) {
         setVehicleLocation({
           latitude: data.latitude,
           longitude: data.longitude,
@@ -26,38 +74,51 @@ export default function PassengerLiveMapScreen() {
     });
 
     return () => {
-      // Need to invoke unsubscribe directly rather than off() without callback handling
+      isMounted = false;
       unsubscribe();
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
     };
-  }, []);
+  }, [vehicleId]);
 
   return (
     <View style={styles.container}>
       <Header title="Live Map" />
       <MapView
         style={styles.map}
-        region={{
+        initialRegion={{
           latitude: vehicleLocation.latitude,
           longitude: vehicleLocation.longitude,
           latitudeDelta: 0.04,
           longitudeDelta: 0.04,
         }}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
       >
         <Marker
           coordinate={vehicleLocation}
-          title={vehicleId}
-          description="Downtown Express"
+          title={vehicleId as string}
+          description={route as string}
           pinColor="#041627"
         />
-        <Marker
-          coordinate={{ latitude: 37.77825, longitude: -122.4124 }}
-          title="You"
-          pinColor="#fd8b00"
-        />
+        {myLocation && (
+          <Marker
+            coordinate={myLocation}
+            title="You"
+            pinColor="#fd8b00"
+          />
+        )}
       </MapView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.trackButton} onPress={() => router.push('/passenger-tracking')}>
+        <TouchableOpacity 
+          style={styles.trackButton} 
+          onPress={() => router.push({
+            pathname: '/passenger-tracking',
+            params: { vehicleId, route }
+          })}
+        >
           <Text style={styles.trackButtonText}>Track Vehicle</Text>
         </TouchableOpacity>
       </View>

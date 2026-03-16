@@ -8,9 +8,11 @@ export default function VehicleSelectScreen() {
   const router = useRouter();
 
   const vehicles = [
-    { id: 'AF-402', route: 'Downtown Express', status: 'Moving' },
-    { id: 'AF-119', route: 'Airport Shuttle', status: 'Stopped' },
-    { id: 'AF-882', route: 'City Loop', status: 'Moving' },
+    { id: 'TN 01 AF 1234', route: 'Chennai Central - OMR', status: 'Moving' },
+    { id: 'TN 38 BE 5678', route: 'Coimbatore Town Hall', status: 'Stopped' },
+    { id: 'TN 59 CJ 9012', route: 'Madurai Central - Periyar', status: 'Moving' },
+    { id: 'TN 66 DL 3456', route: 'Salem Bus Stand - Junction', status: 'Moving' },
+    { id: 'TN 72 MK 7890', route: 'Tirunelveli - Palayamkottai', status: 'Stopped' },
   ];
 
   return (
@@ -23,7 +25,10 @@ export default function VehicleSelectScreen() {
             vehicleId={v.id} 
             route={v.route} 
             status={v.status} 
-            onPress={() => router.push('/passenger-live-map')} 
+            onPress={() => router.push({
+              pathname: '/passenger-live-map',
+              params: { vehicleId: v.id, route: v.route }
+            })} 
           />
         ))}
       </ScrollView>

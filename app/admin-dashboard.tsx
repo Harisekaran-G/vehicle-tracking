@@ -14,15 +14,26 @@ interface VehicleData {
   status: string;
 }
 
+interface TaskLog {
+  vehicleId: string;
+  driverId: string;
+  eventType: string;
+  timestamp: string;
+  reason?: string;
+  minutes?: string;
+}
+
 export default function AdminDashboardScreen() {
   const [vehicles, setVehicles] = useState<Record<string, VehicleData>>({});
+  const [taskLogs, setTaskLogs] = useState<TaskLog[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     const vehiclesRef = ref(database, 'vehicles');
+    const logsRef = ref(database, 'task_logs');
     
-    const unsubscribe = onValue(vehiclesRef, (snapshot) => {
+    const unsubscribeVehicles = onValue(vehiclesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setVehicles(data);
@@ -32,8 +43,19 @@ export default function AdminDashboardScreen() {
       }
     });
 
+    const unsubscribeLogs = onValue(logsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const logsArray = Object.values(data) as TaskLog[];
+        // Sort by most recent
+        logsArray.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setTaskLogs(logsArray.slice(0, 10)); // Show last 10 tasks
+      }
+    });
+
     return () => {
-      unsubscribe();
+      unsubscribeVehicles();
+      unsubscribeLogs();
     };
   }, []);
 
@@ -63,14 +85,42 @@ export default function AdminDashboardScreen() {
         </View>
 
         <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Task & Delay Monitoring</Text>
+          {taskLogs.length > 0 ? (
+            taskLogs.map((log, index) => {
+              const isDelay = log.eventType === 'DELAY_REPORTED';
+              return (
+                <View key={index} style={[styles.logItem, isDelay && styles.delayLogBg]}>
+                  <View style={[styles.statusDot, { backgroundColor: isDelay ? '#d9534f' : log.eventType === 'Task Completed' ? '#5cb85c' : '#fd8b00' }]} />
+                  <View style={styles.logTextContainer}>
+                    <Text style={[styles.logEvent, isDelay && { color: '#d9534f' }]}>
+                      {isDelay ? `🚨 DELAY: ${log.minutes}m` : log.eventType}
+                    </Text>
+                    <Text style={styles.logDetail}>
+                      {log.vehicleId} • {log.driverId}
+                      {log.reason ? `\nReason: ${log.reason}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.logTime}>
+                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.emptyText}>No recent tasks logged.</Text>
+          )}
+        </View>
+
+        <View style={styles.panel}>
           <Text style={styles.panelTitle}>Live Alerts Panel</Text>
           <View style={styles.alertItem}>
             <View style={styles.alertDot} />
-            <Text style={styles.alertText}>Vehicle AF-119 stopped unexpectedly.</Text>
+            <Text style={styles.alertText}>Vehicle TN 38 BE 5678 stopped unexpectedly.</Text>
           </View>
           <View style={[styles.alertItem, { borderBottomWidth: 0 }]}>
             <View style={[styles.alertDot, { backgroundColor: '#fd8b00' }]} />
-            <Text style={styles.alertText}>Vehicle AF-402 route deviation.</Text>
+            <Text style={styles.alertText}>Vehicle TN 01 AF 1234 route deviation.</Text>
           </View>
         </View>
 
@@ -89,15 +139,15 @@ export default function AdminDashboardScreen() {
           ) : (
             <>
               <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>AF-402 (Downtown)</Text>
+                <Text style={styles.statusLabel}>TN 01 AF 1234 (Chennai-OMR)</Text>
                 <Text style={styles.statusMoving}>Moving</Text>
               </View>
               <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>AF-119 (Airport)</Text>
+                <Text style={styles.statusLabel}>TN 38 BE 5678 (Coimbatore)</Text>
                 <Text style={styles.statusStopped}>Stopped</Text>
               </View>
               <View style={[styles.statusRow, { borderBottomWidth: 0 }]}>
-                <Text style={styles.statusLabel}>AF-882 (City Loop)</Text>
+                <Text style={styles.statusLabel}>TN 59 CJ 9012 (Madurai)</Text>
                 <Text style={styles.statusMoving}>Moving</Text>
               </View>
             </>
@@ -202,5 +252,44 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#d9534f',
+  },
+  logItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  logTextContainer: {
+    flex: 1,
+  },
+  logEvent: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#041627',
+  },
+  logDetail: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  logTime: {
+    fontSize: 12,
+    color: '#999',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#999',
+    paddingVertical: 20,
+    fontStyle: 'italic',
+  },
+  delayLogBg: {
+    backgroundColor: '#fff0f0',
   },
 });
